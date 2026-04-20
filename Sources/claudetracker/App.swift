@@ -6,12 +6,14 @@ struct ClaudeTrackerApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
     @StateObject private var bridge = StatuslineBridge()
     @StateObject private var usage = UsageStore()
+    @StateObject private var sessions = SessionsBridge()
 
     var body: some Scene {
         MenuBarExtra {
             PopoverView()
                 .environmentObject(bridge)
                 .environmentObject(usage)
+                .environmentObject(sessions)
         } label: {
             MenuBarLabel(bridge: bridge)
         }

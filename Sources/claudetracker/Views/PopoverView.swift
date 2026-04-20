@@ -3,6 +3,7 @@ import SwiftUI
 struct PopoverView: View {
     @EnvironmentObject private var bridge: StatuslineBridge
     @EnvironmentObject private var usage: UsageStore
+    @EnvironmentObject private var sessions: SessionsBridge
     @State private var tick: Int = 0
     @Environment(\.openURL) private var openURL
 
@@ -10,6 +11,9 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            ActiveSessionsCard(sessions: sessions.activeSessions)
+            Divider().padding(.vertical, 8)
+
             RateLimitCard(title: "5-HOUR BLOCK",
                           percentage: bridge.snapshot?.rateLimits?.fiveHour?.usedPercentage,
                           resetsAt: bridge.snapshot?.rateLimits?.fiveHour?.resetsAt.map { Date(timeIntervalSince1970: $0) },
@@ -32,8 +36,10 @@ struct PopoverView: View {
                           entries: usage.snapshot.byModelToday.map { (key: $0.key, bucket: $0.value) })
             Divider().padding(.vertical, 8)
 
-            BreakdownCard(title: "BY PROJECT (today)",
-                          entries: usage.snapshot.byProjectToday.map { (key: $0.key, bucket: $0.value) })
+            ProjectBreakdownCard(
+                rollups: usage.snapshot.byProject,
+                activeProjects: Set(sessions.activeSessions.map(\.projectName))
+            )
             Divider().padding(.vertical, 8)
 
             FooterRow()

@@ -170,14 +170,32 @@ final class UsageStore: ObservableObject {
 
         snap.entryCount += 1
 
+        var rollup = snap.byProject[entry.projectKey] ?? ProjectRollup()
+
         if ts >= startOfToday {
             snap.today.add(entry)
             snap.byModelToday[entry.modelId, default: .init()].add(entry)
-            snap.byProjectToday[entry.projectKey, default: .init()].add(entry)
+            rollup.today.add(entry)
+            rollup.byModelToday[entry.modelId, default: .init()].add(entry)
         }
         if ts >= startOfWeek {
             snap.thisWeek.add(entry)
+            snap.byModelWeek[entry.modelId, default: .init()].add(entry)
+            rollup.week.add(entry)
+            rollup.byModelWeek[entry.modelId, default: .init()].add(entry)
         }
+        snap.allTime.add(entry)
+        snap.byModelAll[entry.modelId, default: .init()].add(entry)
+        rollup.allTime.add(entry)
+        rollup.byModelAll[entry.modelId, default: .init()].add(entry)
+
+        if rollup.firstActivityAt == nil || ts < rollup.firstActivityAt! {
+            rollup.firstActivityAt = ts
+        }
+        if rollup.lastActivityAt == nil || ts > rollup.lastActivityAt! {
+            rollup.lastActivityAt = ts
+        }
+        snap.byProject[entry.projectKey] = rollup
     }
 
     nonisolated private static func projectKey(forProjectDir dir: URL) -> String {

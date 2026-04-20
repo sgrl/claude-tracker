@@ -49,11 +49,62 @@ struct Bucket: Equatable {
     }
 }
 
+/// Scope of time window a view is showing.
+enum Scope: String, CaseIterable, Identifiable {
+    case today, week, all
+    var id: String { rawValue }
+    var label: String {
+        switch self {
+        case .today: return "Today"
+        case .week:  return "7 days"
+        case .all:   return "All time"
+        }
+    }
+}
+
+struct ProjectRollup: Equatable {
+    var today: Bucket = .init()
+    var week: Bucket = .init()
+    var allTime: Bucket = .init()
+    var byModelToday: [String: Bucket] = [:]
+    var byModelWeek: [String: Bucket] = [:]
+    var byModelAll: [String: Bucket] = [:]
+    var lastActivityAt: Date?
+    var firstActivityAt: Date?
+
+    func bucket(for scope: Scope) -> Bucket {
+        switch scope {
+        case .today: return today
+        case .week:  return week
+        case .all:   return allTime
+        }
+    }
+
+    func byModel(for scope: Scope) -> [String: Bucket] {
+        switch scope {
+        case .today: return byModelToday
+        case .week:  return byModelWeek
+        case .all:   return byModelAll
+        }
+    }
+}
+
 struct UsageSnapshot: Equatable {
     var today: Bucket = .init()
     var thisWeek: Bucket = .init()
-    var byModelToday: [String: Bucket] = [:]   // key: modelId
-    var byProjectToday: [String: Bucket] = [:] // key: projectKey
+    var allTime: Bucket = .init()
+    var byModelToday: [String: Bucket] = [:]
+    var byModelWeek: [String: Bucket] = [:]
+    var byModelAll: [String: Bucket] = [:]
+    var byProject: [String: ProjectRollup] = [:]
     var entryCount: Int = 0
     var lastComputedAt: Date = .distantPast
+
+    func topLevelBucket(for scope: Scope) -> Bucket {
+        switch scope {
+        case .today: return today
+        case .week:  return thisWeek
+        case .all:   return allTime
+        }
+    }
 }
