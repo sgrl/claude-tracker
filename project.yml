@@ -1,0 +1,45 @@
+name: claudetracker
+options:
+  bundleIdPrefix: com.sagar
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+  generateEmptyDirectories: false
+
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    CODE_SIGN_STYLE: Automatic
+    CODE_SIGN_IDENTITY: "-"
+    DEVELOPMENT_TEAM: ""
+    ENABLE_HARDENED_RUNTIME: "YES"
+
+targets:
+  claudetracker:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/claudetracker
+        excludes:
+          - "Info.plist"
+          - "claudetracker.entitlements"
+    info:
+      path: Sources/claudetracker/Info.plist
+      properties:
+        LSUIElement: true
+        CFBundleDisplayName: Claude Tracker
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        NSHumanReadableCopyright: ""
+    entitlements:
+      path: Sources/claudetracker/claudetracker.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.sagar.claudetracker
+        PRODUCT_NAME: claudetracker
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: "NO"
