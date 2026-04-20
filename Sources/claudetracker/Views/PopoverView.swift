@@ -32,8 +32,7 @@ struct PopoverView: View {
             WeekCard(bucket: usage.snapshot.thisWeek, dailyLast7: usage.snapshot.dailyLast7)
             SectionDivider()
 
-            BreakdownCard(title: "BY MODEL (today)",
-                          entries: usage.snapshot.byModelToday.map { (key: $0.key, bucket: $0.value) })
+            ModelBreakdownCard(snapshot: usage.snapshot)
             SectionDivider()
 
             ProjectBreakdownCard(
@@ -54,6 +53,7 @@ struct PopoverView: View {
 private struct FooterRow: View {
     @EnvironmentObject private var usage: UsageStore
     @EnvironmentObject private var bridge: StatuslineBridge
+    @Environment(\.openSettings) private var openSettings
 
     var body: some View {
         HStack {
@@ -64,6 +64,13 @@ private struct FooterRow: View {
             Button("Refresh") {
                 usage.refresh()
                 bridge.reload()
+            }
+            .buttonStyle(.plain)
+            .font(.caption)
+            Text("·").foregroundStyle(.secondary)
+            Button("Settings…") {
+                NSApp.activate(ignoringOtherApps: true)
+                openSettings()
             }
             .buttonStyle(.plain)
             .font(.caption)

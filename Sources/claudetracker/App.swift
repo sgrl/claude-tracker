@@ -15,9 +15,13 @@ struct ClaudeTrackerApp: App {
                 .environmentObject(usage)
                 .environmentObject(sessions)
         } label: {
-            MenuBarLabel(bridge: bridge)
+            MenuBarLabel(bridge: bridge, usage: usage)
         }
         .menuBarExtraStyle(.window)
+
+        Settings {
+            SettingsView()
+        }
     }
 }
 
@@ -29,12 +33,36 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
 private struct MenuBarLabel: View {
     @ObservedObject var bridge: StatuslineBridge
+    @ObservedObject var usage: UsageStore
+    @AppStorage(SettingsKey.menuBarFormat) private var formatRaw: String = MenuBarFormat.fiveHour.rawValue
+
+    private var format: MenuBarFormat {
+        MenuBarFormat(rawValue: formatRaw) ?? .fiveHour
+    }
 
     var body: some View {
-        if let pct = bridge.snapshot?.rateLimits?.fiveHour?.usedPercentage, bridge.isFresh {
-            Text("5h \(Int(pct.rounded()))%")
-        } else {
-            Text("5h —")
+        Text(text)
+    }
+
+    private var text: String {
+        switch format {
+        case .fiveHour:  return fiveHourText ?? "5h —"
+        case .todayCost: return todayText    ?? "$—"
+        case .both:
+            let parts = [todayText, fiveHourText].compactMap { $0 }
+            return parts.isEmpty ? "—" : parts.joined(separator: " · ")
         }
+    }
+
+    private var fiveHourText: String? {
+        guard bridge.isFresh,
+              let pct = bridge.snapshot?.rateLimits?.fiveHour?.usedPercentage else { return nil }
+        return "5h \(Int(pct.rounded()))%"
+    }
+
+    private var todayText: String? {
+        let cost = usage.snapshot.today.cost
+        guard cost > 0 else { return nil }
+        return Fmt.dollars(cost)
     }
 }
