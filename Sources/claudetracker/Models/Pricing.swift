@@ -2,11 +2,26 @@ import Foundation
 
 // USD per 1M tokens. Public list prices — update as Anthropic publishes changes.
 enum Pricing {
-    struct Rates {
+    struct Rates: Equatable, Codable {
         let input: Double
         let output: Double
         let cacheWrite: Double  // cache_creation_input_tokens
         let cacheRead: Double   // cache_read_input_tokens
+    }
+
+    // Lock-protected live rates populated by PricingService on successful fetch.
+    // Keys are lowercased model identifiers as they appear in LiteLLM (e.g. "claude-opus-4-7").
+    private static let liveLock = NSLock()
+    private static var _live: [String: Rates] = [:]
+
+    static func setLive(_ rates: [String: Rates]) {
+        liveLock.lock(); defer { liveLock.unlock() }
+        _live = rates
+    }
+
+    static func liveSnapshot() -> [String: Rates] {
+        liveLock.lock(); defer { liveLock.unlock() }
+        return _live
     }
 
     // First substring match (case-insensitive) against the model id wins.
@@ -33,6 +48,14 @@ enum Pricing {
 
     static func rates(for modelId: String) -> Rates? {
         let key = modelId.lowercased()
+        let live = liveSnapshot()
+        // 1. Exact live match.
+        if let r = live[key] { return r }
+        // 2. Substring live match in either direction (handles bracketed suffixes like "claude-opus-4-7[1m]").
+        for (liveKey, rates) in live where key.contains(liveKey) || liveKey.contains(key) {
+            return rates
+        }
+        // 3. Fallback to hardcoded pattern table (seed/offline path).
         return table.first { key.contains($0.pattern) }?.rates
     }
 

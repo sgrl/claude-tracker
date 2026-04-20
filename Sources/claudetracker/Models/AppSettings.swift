@@ -17,6 +17,7 @@ enum MenuBarFormat: String, CaseIterable, Identifiable {
 }
 
 enum SettingsKey {
-    static let menuBarFormat = "menuBarFormat"
-    static let launchAtLogin = "launchAtLogin"
+    static let menuBarFormat             = "menuBarFormat"
+    static let launchAtLogin             = "launchAtLogin"
+    static let pricingRefreshInterval    = "pricingRefreshInterval"    // seconds; 0 = manual only
 }

@@ -28,6 +28,9 @@ struct ClaudeTrackerApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
+        // Touch the shared PricingService so it loads its cache and schedules
+        // auto-refresh from the moment the app starts.
+        _ = PricingService.shared
     }
 }
 

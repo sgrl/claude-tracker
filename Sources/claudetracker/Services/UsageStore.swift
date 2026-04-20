@@ -1,6 +1,16 @@
 import Foundation
 import Combine
 
+/// Parser-side state for a single JSONL file. Kept so we only re-read bytes past
+/// `nextOffset` on subsequent refreshes.
+struct FileParseState: Equatable {
+    let url: URL
+    var size: Int
+    var mtime: Date
+    var nextOffset: Int         // byte offset where next read starts (always at a line boundary)
+    var entries: [UsageEntry]   // parsed entries for this file, in order
+}
+
 @MainActor
 final class UsageStore: ObservableObject {
     @Published private(set) var snapshot: UsageSnapshot = .init()
@@ -9,9 +19,11 @@ final class UsageStore: ObservableObject {
     private let projectsDir: URL = URL(fileURLWithPath:
         (NSHomeDirectory() as NSString).appendingPathComponent(".claude/projects"))
 
+    private var fileStates: [URL: FileParseState] = [:]
     private var refreshTimer: Timer?
     private var fsSource: DispatchSourceFileSystemObject?
     private var fsFd: Int32 = -1
+    private var pricingObserver: NSObjectProtocol?
 
     init() {
         refresh()
@@ -19,49 +31,230 @@ final class UsageStore: ObservableObject {
             Task { @MainActor in self?.refresh() }
         }
         attachDirWatcher()
+        pricingObserver = NotificationCenter.default.addObserver(
+            forName: .pricingDidUpdate, object: nil, queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in self?.rebucket() }
+        }
     }
 
     deinit {
         refreshTimer?.invalidate()
         fsSource?.cancel()
         if fsFd >= 0 { close(fsFd) }
+        if let obs = pricingObserver { NotificationCenter.default.removeObserver(obs) }
     }
 
     func refresh() {
         guard !isRefreshing else { return }
         isRefreshing = true
         let dir = projectsDir
-        Task.detached(priority: .utility) { [weak self] in
-            let result = UsageStore.computeSnapshot(from: dir)
+        let currentStates = fileStates
+        Task.detached(priority: .utility) {
+            let (newStates, snap) = UsageStore.computeIncremental(
+                projectsDir: dir, existing: currentStates
+            )
             await MainActor.run { [weak self] in
                 guard let self else { return }
-                self.snapshot = result
+                self.fileStates = newStates
+                self.snapshot = snap
                 self.isRefreshing = false
             }
         }
     }
 
-    // MARK: - Pure computation (runs off main)
+    /// Re-bucket from existing parsed entries without re-reading files. Used when
+    /// prices change — cost-per-entry shifts but entries themselves don't.
+    private func rebucket() {
+        let states = fileStates
+        Task.detached(priority: .utility) {
+            let snap = UsageStore.bucketize(fileStates: states)
+            await MainActor.run { [weak self] in
+                self?.snapshot = snap
+            }
+        }
+    }
 
-    nonisolated private static func computeSnapshot(from projectsDir: URL) -> UsageSnapshot {
+    // MARK: - Pure compute (nonisolated)
+
+    nonisolated private static func computeIncremental(
+        projectsDir: URL,
+        existing: [URL: FileParseState]
+    ) -> ([URL: FileParseState], UsageSnapshot) {
+        var states = existing
         let fm = FileManager.default
+
         guard let enumerator = fm.enumerator(
             at: projectsDir,
-            includingPropertiesForKeys: [.isRegularFileKey],
+            includingPropertiesForKeys: [.isRegularFileKey, .fileSizeKey, .contentModificationDateKey],
             options: [.skipsHiddenFiles]
         ) else {
-            return UsageSnapshot()
+            return (states, UsageSnapshot())
         }
 
+        var seenOnDisk = Set<URL>()
+
+        for case let url as URL in enumerator {
+            guard url.pathExtension == "jsonl" else { continue }
+            seenOnDisk.insert(url)
+
+            let values = try? url.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
+            let size = values?.fileSize ?? 0
+            let mtime = values?.contentModificationDate ?? .distantPast
+
+            if let cached = states[url] {
+                if cached.size == size && cached.mtime == mtime {
+                    continue                                    // unchanged — keep state as-is
+                }
+                if size < cached.size {
+                    // File shrunk — likely a rewrite; re-read from scratch.
+                    states[url] = parseFull(url: url, size: size, mtime: mtime)
+                } else {
+                    states[url] = extendParse(prior: cached, url: url, size: size, mtime: mtime)
+                }
+            } else {
+                states[url] = parseFull(url: url, size: size, mtime: mtime)
+            }
+        }
+
+        // Drop cache entries for files that disappeared.
+        for key in states.keys where !seenOnDisk.contains(key) {
+            states.removeValue(forKey: key)
+        }
+
+        let snap = bucketize(fileStates: states)
+        return (states, snap)
+    }
+
+    nonisolated private static func parseFull(url: URL, size: Int, mtime: Date) -> FileParseState {
+        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else {
+            return FileParseState(url: url, size: 0, mtime: mtime, nextOffset: 0, entries: [])
+        }
+        let projectKey = projectKey(forProjectDir: url.deletingLastPathComponent())
+        let (entries, lastBoundary) = parseRange(data: data, from: 0, projectKey: projectKey)
+        return FileParseState(url: url, size: size, mtime: mtime, nextOffset: lastBoundary, entries: entries)
+    }
+
+    nonisolated private static func extendParse(
+        prior: FileParseState,
+        url: URL,
+        size: Int,
+        mtime: Date
+    ) -> FileParseState {
+        guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else {
+            return prior
+        }
+        let projectKey = projectKey(forProjectDir: url.deletingLastPathComponent())
+        let (newEntries, lastBoundary) = parseRange(
+            data: data, from: prior.nextOffset, projectKey: projectKey
+        )
+        var merged = prior.entries
+        merged.append(contentsOf: newEntries)
+        return FileParseState(
+            url: url,
+            size: size,
+            mtime: mtime,
+            nextOffset: lastBoundary,
+            entries: merged
+        )
+    }
+
+    /// Parse the given data starting at `from`. Returns the entries found plus the
+    /// offset of the byte *after* the last newline that was consumed (so a later call
+    /// can resume from there without re-parsing partial tail lines).
+    nonisolated private static func parseRange(
+        data: Data,
+        from start: Int,
+        projectKey: String
+    ) -> ([UsageEntry], Int) {
+        guard start < data.count else { return ([], data.count) }
+        var entries: [UsageEntry] = []
+        var lastBoundary = start
+
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let formatterNoFrac = ISO8601DateFormatter()
+        formatterNoFrac.formatOptions = [.withInternetDateTime]
+
+        data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
+            guard let base = raw.baseAddress else { return }
+            var lineStart = start
+            for i in start..<data.count {
+                let byte = base.load(fromByteOffset: i, as: UInt8.self)
+                if byte == 0x0A { // '\n'
+                    if i > lineStart {
+                        let lineData = Data(
+                            bytesNoCopy: UnsafeMutableRawPointer(mutating: base.advanced(by: lineStart)),
+                            count: i - lineStart,
+                            deallocator: .none
+                        )
+                        if let e = decodeEntry(
+                            lineData,
+                            projectKey: projectKey,
+                            formatter: formatter,
+                            formatterNoFrac: formatterNoFrac
+                        ) {
+                            entries.append(e)
+                        }
+                    }
+                    lineStart = i + 1
+                    lastBoundary = i + 1
+                }
+            }
+        }
+        return (entries, lastBoundary)
+    }
+
+    nonisolated private static func decodeEntry(
+        _ data: Data,
+        projectKey fallbackProjectKey: String,
+        formatter: ISO8601DateFormatter,
+        formatterNoFrac: ISO8601DateFormatter
+    ) -> UsageEntry? {
+        guard let raw = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any],
+              (raw["type"] as? String) == "assistant",
+              let message = raw["message"] as? [String: Any],
+              let usage = message["usage"] as? [String: Any],
+              let messageId = message["id"] as? String,
+              let timestampStr = raw["timestamp"] as? String else {
+            return nil
+        }
+        let ts = formatter.date(from: timestampStr) ?? formatterNoFrac.date(from: timestampStr)
+        guard let ts else { return nil }
+
+        let modelId  = (message["model"] as? String) ?? "unknown"
+        let sessionId = (raw["sessionId"] as? String) ?? ""
+        let projectKey: String = {
+            if let cwd = raw["cwd"] as? String, let last = cwd.split(separator: "/").last {
+                return String(last)
+            }
+            return fallbackProjectKey
+        }()
+
+        let entry = UsageEntry(
+            timestamp: ts,
+            modelId: modelId,
+            projectKey: projectKey,
+            sessionId: sessionId,
+            messageId: messageId,
+            inputTokens:      (usage["input_tokens"] as? Int) ?? 0,
+            outputTokens:     (usage["output_tokens"] as? Int) ?? 0,
+            cacheWriteTokens: (usage["cache_creation_input_tokens"] as? Int) ?? 0,
+            cacheReadTokens:  (usage["cache_read_input_tokens"]  as? Int) ?? 0
+        )
+        return entry.totalTokens == 0 ? nil : entry
+    }
+
+    /// Bucket the cached entries into today / week / all + per-project / per-model rollups.
+    /// Global dedup by messageId across files (same id can appear in multiple JSONL files).
+    nonisolated static func bucketize(fileStates: [URL: FileParseState]) -> UsageSnapshot {
         var snap = UsageSnapshot()
-        var seenMessageIds = Set<String>()
 
         let cal = Calendar.current
         let now = Date()
         let startOfToday = cal.startOfDay(for: now)
-        let startOfWeek = cal.date(byAdding: .day, value: -6, to: startOfToday) ?? startOfToday
+        let startOfWeek  = cal.date(byAdding: .day, value: -6, to: startOfToday) ?? startOfToday
 
-        // Pre-seed one bucket per day for the last 7 days (oldest first).
         var dailyBuckets: [Date: Bucket] = [:]
         for i in 0..<7 {
             if let d = cal.date(byAdding: .day, value: -i, to: startOfToday) {
@@ -69,66 +262,29 @@ final class UsageStore: ObservableObject {
             }
         }
 
-        let decoder = JSONDecoder()
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        let formatterNoFrac = ISO8601DateFormatter()
-        formatterNoFrac.formatOptions = [.withInternetDateTime]
+        var seenMessageIds = Set<String>()
+        var entryCount = 0
 
-        for case let url as URL in enumerator {
-            guard url.pathExtension == "jsonl" else { continue }
-            guard let data = try? Data(contentsOf: url, options: [.mappedIfSafe]) else { continue }
-            let projectKey = projectKey(forProjectDir: url.deletingLastPathComponent())
-
-            data.withUnsafeBytes { (raw: UnsafeRawBufferPointer) in
-                guard let base = raw.baseAddress else { return }
-                var lineStart = 0
-                let count = raw.count
-                for i in 0..<count {
-                    let byte = base.load(fromByteOffset: i, as: UInt8.self)
-                    if byte == 0x0A { // '\n'
-                        if i > lineStart {
-                            let lineData = Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: base.advanced(by: lineStart)),
-                                                count: i - lineStart,
-                                                deallocator: .none)
-                            processLine(
-                                lineData,
-                                projectKey: projectKey,
-                                decoder: decoder,
-                                formatter: formatter,
-                                formatterNoFrac: formatterNoFrac,
-                                seenMessageIds: &seenMessageIds,
-                                cal: cal,
-                                startOfToday: startOfToday,
-                                startOfWeek: startOfWeek,
-                                dailyBuckets: &dailyBuckets,
-                                snap: &snap
-                            )
-                        }
-                        lineStart = i + 1
-                    }
-                }
-                if lineStart < count {
-                    let lineData = Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: base.advanced(by: lineStart)),
-                                        count: count - lineStart,
-                                        deallocator: .none)
-                    processLine(
-                        lineData,
-                        projectKey: projectKey,
-                        decoder: decoder,
-                        formatter: formatter,
-                        formatterNoFrac: formatterNoFrac,
-                        seenMessageIds: &seenMessageIds,
-                        cal: cal,
-                        startOfToday: startOfToday,
-                        startOfWeek: startOfWeek,
-                        dailyBuckets: &dailyBuckets,
-                        snap: &snap
-                    )
-                }
+        // Merge in deterministic order so dedup wins stay stable across runs.
+        let ordered = fileStates.keys.sorted { $0.path < $1.path }
+        for key in ordered {
+            guard let state = fileStates[key] else { continue }
+            for entry in state.entries {
+                if seenMessageIds.contains(entry.messageId) { continue }
+                seenMessageIds.insert(entry.messageId)
+                entryCount += 1
+                ingest(
+                    entry: entry,
+                    cal: cal,
+                    startOfToday: startOfToday,
+                    startOfWeek: startOfWeek,
+                    dailyBuckets: &dailyBuckets,
+                    snap: &snap
+                )
             }
         }
 
+        snap.entryCount = entryCount
         snap.dailyLast7 = dailyBuckets
             .map { DailyBucket(day: $0.key, bucket: $0.value) }
             .sorted { $0.day < $1.day }
@@ -136,71 +292,28 @@ final class UsageStore: ObservableObject {
         return snap
     }
 
-    nonisolated private static func processLine(
-        _ data: Data,
-        projectKey: String,
-        decoder: JSONDecoder,
-        formatter: ISO8601DateFormatter,
-        formatterNoFrac: ISO8601DateFormatter,
-        seenMessageIds: inout Set<String>,
+    nonisolated private static func ingest(
+        entry: UsageEntry,
         cal: Calendar,
         startOfToday: Date,
         startOfWeek: Date,
         dailyBuckets: inout [Date: Bucket],
         snap: inout UsageSnapshot
     ) {
-        guard let raw = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else { return }
-        guard (raw["type"] as? String) == "assistant" else { return }
-        guard let message = raw["message"] as? [String: Any] else { return }
-        guard let usage = message["usage"] as? [String: Any] else { return }
-        guard let messageId = message["id"] as? String else { return }
-        if seenMessageIds.contains(messageId) { return }
-        seenMessageIds.insert(messageId)
-
-        guard let timestampStr = raw["timestamp"] as? String else { return }
-        let timestamp = formatter.date(from: timestampStr)
-            ?? formatterNoFrac.date(from: timestampStr)
-        guard let ts = timestamp else { return }
-
-        let modelId = (message["model"] as? String) ?? "unknown"
-        let sessionId = (raw["sessionId"] as? String) ?? ""
-        let projectKeyFromCwd: String = {
-            if let cwd = raw["cwd"] as? String, let last = cwd.split(separator: "/").last {
-                return String(last)
-            }
-            return projectKey
-        }()
-
-        let entry = UsageEntry(
-            timestamp: ts,
-            modelId: modelId,
-            projectKey: projectKeyFromCwd,
-            sessionId: sessionId,
-            messageId: messageId,
-            inputTokens: (usage["input_tokens"] as? Int) ?? 0,
-            outputTokens: (usage["output_tokens"] as? Int) ?? 0,
-            cacheWriteTokens: (usage["cache_creation_input_tokens"] as? Int) ?? 0,
-            cacheReadTokens: (usage["cache_read_input_tokens"] as? Int) ?? 0
-        )
-
-        if entry.totalTokens == 0 { return }
-
-        snap.entryCount += 1
-
         var rollup = snap.byProject[entry.projectKey] ?? ProjectRollup()
 
-        if ts >= startOfToday {
+        if entry.timestamp >= startOfToday {
             snap.today.add(entry)
             snap.byModelToday[entry.modelId, default: .init()].add(entry)
             rollup.today.add(entry)
             rollup.byModelToday[entry.modelId, default: .init()].add(entry)
         }
-        if ts >= startOfWeek {
+        if entry.timestamp >= startOfWeek {
             snap.thisWeek.add(entry)
             snap.byModelWeek[entry.modelId, default: .init()].add(entry)
             rollup.week.add(entry)
             rollup.byModelWeek[entry.modelId, default: .init()].add(entry)
-            let dayStart = cal.startOfDay(for: ts)
+            let dayStart = cal.startOfDay(for: entry.timestamp)
             if var b = dailyBuckets[dayStart] {
                 b.add(entry)
                 dailyBuckets[dayStart] = b
@@ -211,24 +324,24 @@ final class UsageStore: ObservableObject {
         rollup.allTime.add(entry)
         rollup.byModelAll[entry.modelId, default: .init()].add(entry)
 
-        if rollup.firstActivityAt == nil || ts < rollup.firstActivityAt! {
-            rollup.firstActivityAt = ts
+        if rollup.firstActivityAt == nil || entry.timestamp < rollup.firstActivityAt! {
+            rollup.firstActivityAt = entry.timestamp
         }
-        if rollup.lastActivityAt == nil || ts > rollup.lastActivityAt! {
-            rollup.lastActivityAt = ts
+        if rollup.lastActivityAt == nil || entry.timestamp > rollup.lastActivityAt! {
+            rollup.lastActivityAt = entry.timestamp
         }
         snap.byProject[entry.projectKey] = rollup
     }
 
     nonisolated private static func projectKey(forProjectDir dir: URL) -> String {
-        // Directory names look like "-Users-sagar-Projects-med-softattention".
-        // Take the substring after the last "-Projects-" if present, else the dir name.
         let name = dir.lastPathComponent
         if let range = name.range(of: "-Projects-") {
             return String(name[range.upperBound...])
         }
         return name
     }
+
+    // MARK: - Directory watcher
 
     private func attachDirWatcher() {
         let fd = open(projectsDir.path, O_EVTONLY)
