@@ -3,6 +3,7 @@ import Foundation
 struct SessionState: Equatable, Identifiable {
     let sessionId: String
     let cwd: String?
+    let transcriptPath: String?
     let model: Model?
     let cost: Cost?
     let contextWindow: ContextWindow?

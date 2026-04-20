@@ -5,12 +5,71 @@ struct SettingsView: View {
         TabView {
             GeneralTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
+            NotificationsTab()
+                .tabItem { Label("Notifications", systemImage: "bell") }
             PricingTab()
                 .tabItem { Label("Pricing", systemImage: "dollarsign.circle") }
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 460, height: 320)
+        .frame(width: 480, height: 340)
+    }
+}
+
+private struct NotificationsTab: View {
+    @ObservedObject private var notifier = NotificationService.shared
+
+    @AppStorage(SettingsKey.notify5h80) private var notify5h80: Bool = true
+    @AppStorage(SettingsKey.notify5h95) private var notify5h95: Bool = true
+    @AppStorage(SettingsKey.notify7d80) private var notify7d80: Bool = true
+    @AppStorage(SettingsKey.notify7d95) private var notify7d95: Bool = true
+
+    var body: some View {
+        Form {
+            Section("5-hour block") {
+                Toggle("Notify at 80%", isOn: $notify5h80)
+                Toggle("Notify at 95%", isOn: $notify5h95)
+            }
+            Section("7-day window") {
+                Toggle("Notify at 80%", isOn: $notify7d80)
+                Toggle("Notify at 95%", isOn: $notify7d95)
+            }
+            Section {
+                authRow
+            }
+        }
+        .formStyle(.grouped)
+        .padding(12)
+        .task { await notifier.refreshAuthorization() }
+    }
+
+    @ViewBuilder
+    private var authRow: some View {
+        switch notifier.authorizationStatus {
+        case .authorized, .provisional, .ephemeral:
+            Label("Notifications permission granted", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption)
+        case .denied:
+            VStack(alignment: .leading, spacing: 4) {
+                Label("Notifications disabled in System Settings", systemImage: "xmark.octagon.fill")
+                    .foregroundStyle(.red)
+                    .font(.caption)
+                Button("Open System Settings") {
+                    if let url = URL(string: "x-apple.systempreferences:com.apple.preference.notifications") {
+                        NSWorkspace.shared.open(url)
+                    }
+                }
+                .font(.caption)
+            }
+        case .notDetermined:
+            Button("Request permission") {
+                Task { await notifier.requestPermissionIfNeeded() }
+            }
+            .font(.caption)
+        @unknown default:
+            EmptyView()
+        }
     }
 }
 

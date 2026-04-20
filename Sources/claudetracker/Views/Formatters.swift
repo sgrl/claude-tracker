@@ -28,6 +28,17 @@ enum Fmt {
         return "\(m)m"
     }
 
+    /// Friendly elapsed duration: "2h 14m", "14m 8s", "8s".
+    static func durationLong(_ seconds: TimeInterval) -> String {
+        let secs = max(0, Int(seconds))
+        let h = secs / 3600
+        let m = (secs % 3600) / 60
+        let s = secs % 60
+        if h > 0 { return "\(h)h \(m)m" }
+        if m > 0 { return "\(m)m \(s)s" }
+        return "\(s)s"
+    }
+
     static func dayTime(_ date: Date) -> String {
         let df = DateFormatter()
         df.dateFormat = "EEE d MMM · HH:mm"

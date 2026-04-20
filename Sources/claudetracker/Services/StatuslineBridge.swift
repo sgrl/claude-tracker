@@ -1,6 +1,10 @@
 import Foundation
 import Combine
 
+extension Notification.Name {
+    static let statuslineDidUpdate = Notification.Name("com.sagar.claudetracker.statuslineDidUpdate")
+}
+
 @MainActor
 final class StatuslineBridge: ObservableObject {
     @Published private(set) var snapshot: StatuslinePayload?
@@ -36,7 +40,10 @@ final class StatuslineBridge: ObservableObject {
     }
 
     func reload() {
-        defer { lastReloadAt = Date() }
+        defer {
+            lastReloadAt = Date()
+            NotificationCenter.default.post(name: .statuslineDidUpdate, object: nil)
+        }
         guard let data = try? Data(contentsOf: url) else {
             snapshot = nil
             fileModified = nil

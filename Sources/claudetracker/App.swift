@@ -8,29 +8,50 @@ struct ClaudeTrackerApp: App {
     @StateObject private var usage = UsageStore()
     @StateObject private var sessions = SessionsBridge()
 
+    init() {
+        // NotificationService reads bridge snapshots through this shared pointer
+        // (set inside body construction below via a side effect).
+    }
+
     var body: some Scene {
         MenuBarExtra {
             PopoverView()
                 .environmentObject(bridge)
                 .environmentObject(usage)
                 .environmentObject(sessions)
+                .onAppear {
+                    BridgeAccess.shared = bridge
+                }
         } label: {
             MenuBarLabel(bridge: bridge, usage: usage)
+                .onAppear {
+                    BridgeAccess.shared = bridge
+                }
         }
         .menuBarExtraStyle(.window)
 
         Settings {
             SettingsView()
         }
+
+        WindowGroup(id: "session-detail", for: SessionDetailTarget.self) { target in
+            if let value = target.wrappedValue {
+                SessionDetailView(target: value)
+                    .frame(minWidth: 640, minHeight: 480)
+            }
+        }
+        .defaultSize(width: 780, height: 560)
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
-        // Touch the shared PricingService so it loads its cache and schedules
-        // auto-refresh from the moment the app starts.
+        SettingsDefaults.registerOnce()
+        // Touch the shared services so they initialize from the moment the app starts.
         _ = PricingService.shared
+        _ = NotificationService.shared
+        Task { await NotificationService.shared.requestPermissionIfNeeded() }
     }
 }
 
@@ -44,7 +65,25 @@ private struct MenuBarLabel: View {
     }
 
     var body: some View {
-        Text(text)
+        HStack(spacing: 3) {
+            Image(systemName: iconName)
+            Text(text)
+        }
+    }
+
+    /// Pick a gauge variant that matches the 5-hour usage level so the icon itself
+    /// gives a rough at-a-glance read even before you read the percentage.
+    private var iconName: String {
+        guard bridge.isFresh,
+              let pct = bridge.snapshot?.rateLimits?.fiveHour?.usedPercentage else {
+            return "gauge.with.dots.needle.0percent"
+        }
+        switch pct {
+        case ..<25:   return "gauge.with.dots.needle.0percent"
+        case ..<60:   return "gauge.with.dots.needle.33percent"
+        case ..<85:   return "gauge.with.dots.needle.67percent"
+        default:      return "gauge.with.dots.needle.100percent"
+        }
     }
 
     private var text: String {
