@@ -89,6 +89,12 @@ struct ProjectRollup: Equatable {
     }
 }
 
+struct DailyBucket: Equatable, Identifiable {
+    let day: Date       // startOfDay
+    var bucket: Bucket
+    var id: Date { day }
+}
+
 struct UsageSnapshot: Equatable {
     var today: Bucket = .init()
     var thisWeek: Bucket = .init()
@@ -97,6 +103,7 @@ struct UsageSnapshot: Equatable {
     var byModelWeek: [String: Bucket] = [:]
     var byModelAll: [String: Bucket] = [:]
     var byProject: [String: ProjectRollup] = [:]
+    var dailyLast7: [DailyBucket] = []  // chronological: oldest first, includes today
     var entryCount: Int = 0
     var lastComputedAt: Date = .distantPast
 

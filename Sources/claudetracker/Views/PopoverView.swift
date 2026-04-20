@@ -12,40 +12,40 @@ struct PopoverView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             ActiveSessionsCard(sessions: sessions.activeSessions)
-            Divider().padding(.vertical, 8)
+            SectionDivider()
 
             RateLimitCard(title: "5-HOUR BLOCK",
                           percentage: bridge.snapshot?.rateLimits?.fiveHour?.usedPercentage,
                           resetsAt: bridge.snapshot?.rateLimits?.fiveHour?.resetsAt.map { Date(timeIntervalSince1970: $0) },
                           isFresh: bridge.isFresh)
-            Divider().padding(.vertical, 8)
+            SectionDivider()
 
             RateLimitCard(title: "7-DAY WINDOW",
                           percentage: bridge.snapshot?.rateLimits?.sevenDay?.usedPercentage,
                           resetsAt: bridge.snapshot?.rateLimits?.sevenDay?.resetsAt.map { Date(timeIntervalSince1970: $0) },
                           isFresh: bridge.isFresh)
-            Divider().padding(.vertical, 8)
+            SectionDivider()
 
             TodayCard(bucket: usage.snapshot.today)
-            Divider().padding(.vertical, 8)
+            SectionDivider()
 
-            WeekCard(bucket: usage.snapshot.thisWeek)
-            Divider().padding(.vertical, 8)
+            WeekCard(bucket: usage.snapshot.thisWeek, dailyLast7: usage.snapshot.dailyLast7)
+            SectionDivider()
 
             BreakdownCard(title: "BY MODEL (today)",
                           entries: usage.snapshot.byModelToday.map { (key: $0.key, bucket: $0.value) })
-            Divider().padding(.vertical, 8)
+            SectionDivider()
 
             ProjectBreakdownCard(
                 rollups: usage.snapshot.byProject,
                 activeProjects: Set(sessions.activeSessions.map(\.projectName))
             )
-            Divider().padding(.vertical, 8)
+            SectionDivider()
 
             FooterRow()
         }
-        .padding(14)
-        .frame(width: 360)
+        .padding(16)
+        .frame(width: 380)
         .onReceive(tickTimer) { _ in tick &+= 1 }
         .id(tick) // re-render so "in 2h 14m" counters stay live
     }

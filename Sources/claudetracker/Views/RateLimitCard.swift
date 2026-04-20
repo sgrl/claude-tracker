@@ -8,50 +8,40 @@ struct RateLimitCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text(title)
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
+            SectionHeader(title) {
                 Text(percentageText)
                     .font(.system(.body, design: .monospaced).weight(.semibold))
                     .foregroundStyle(isFresh ? .primary : .secondary)
             }
-            ProgressView(value: (percentage ?? 0) / 100.0)
-                .progressViewStyle(.linear)
-                .tint(barTint)
-            if let resetsAt {
-                HStack {
-                    Text("Resets in \(Fmt.duration(until: resetsAt))")
-                        .font(.caption)
-                    Spacer()
-                    Text(Fmt.dayTime(resetsAt))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-            } else if percentage != nil {
-                Text("Reset time unavailable")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
-                Text(isFresh ? "No data yet" : "Waiting for next Claude Code session…")
-                    .font(.caption)
+            ThresholdProgressBar(value: percentage ?? 0)
+            resetLine
+        }
+    }
+
+    @ViewBuilder
+    private var resetLine: some View {
+        if let resetsAt {
+            HStack {
+                Text("Resets in \(Fmt.duration(until: resetsAt))")
+                    .font(.caption.monospacedDigit())
+                Spacer()
+                Text(Fmt.dayTime(resetsAt))
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
+        } else if percentage != nil {
+            Text("Reset time unavailable")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else {
+            Text(isFresh ? "No data yet" : "Waiting for next Claude Code session…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
         }
     }
 
     private var percentageText: String {
         if let p = percentage { return Fmt.percent(p) }
         return "—"
-    }
-
-    private var barTint: Color {
-        guard let p = percentage else { return .secondary }
-        switch p {
-        case ..<50:  return .green
-        case ..<80:  return .yellow
-        default:     return .red
-        }
     }
 }

@@ -5,13 +5,9 @@ struct ActiveSessionsCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("ACTIVE SESSIONS")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
-                Spacer()
+            SectionHeader("ACTIVE SESSIONS") {
                 Text("\(sessions.count)")
-                    .font(.caption.monospacedDigit())
+                    .font(.caption.monospacedDigit().weight(.semibold))
                     .foregroundStyle(.secondary)
             }
             if sessions.isEmpty {
@@ -50,7 +46,7 @@ private struct SessionRow: View {
             }
             HStack(spacing: 8) {
                 Text(session.shortModelName)
-                    .font(.caption)
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
                 if let pct = session.contextWindow?.usedPercentage {
                     Text("·").foregroundStyle(.secondary)
@@ -72,7 +68,6 @@ private struct SessionRow: View {
                 }
             }
         }
-        .padding(.vertical, 2)
     }
 
     private func totalLines(for session: SessionState) -> String? {

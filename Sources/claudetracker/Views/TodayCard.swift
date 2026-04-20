@@ -4,35 +4,44 @@ struct TodayCard: View {
     let bucket: Bucket
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("TODAY")
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 6) {
+            SectionHeader("TODAY") {
+                LeadAmount(amount: bucket.cost, approximate: bucket.hasUnknownPricing)
+            }
             HStack(spacing: 8) {
-                Text(costLabel)
-                    .font(.system(.body, design: .monospaced).weight(.semibold))
-                Text("·").foregroundStyle(.secondary)
                 Text("\(Fmt.tokens(bucket.totalTokens)) tokens")
-                    .font(.body.monospacedDigit())
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
                 Text("·").foregroundStyle(.secondary)
                 Text("\(bucket.sessionIds.count) session\(bucket.sessionIds.count == 1 ? "" : "s")")
-                    .font(.body.monospacedDigit())
+                    .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            HStack(spacing: 10) {
-                Label("in \(Fmt.tokens(bucket.inputTokens))", systemImage: "arrow.down")
-                Label("out \(Fmt.tokens(bucket.outputTokens))", systemImage: "arrow.up")
-                Label("cache-r \(Fmt.tokens(bucket.cacheReadTokens))", systemImage: "bolt")
-                Label("cache-w \(Fmt.tokens(bucket.cacheWriteTokens))", systemImage: "square.and.arrow.down")
-            }
-            .labelStyle(.titleAndIcon)
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(.secondary)
+            TokenBreakdownRow(bucket: bucket)
         }
     }
+}
 
-    private var costLabel: String {
-        let base = "\(Fmt.dollars(bucket.cost)) est"
-        return bucket.hasUnknownPricing ? "\(base) +" : base
+struct TokenBreakdownRow: View {
+    let bucket: Bucket
+
+    var body: some View {
+        HStack(spacing: 12) {
+            tokenCell(label: "in",      value: bucket.inputTokens)
+            tokenCell(label: "out",     value: bucket.outputTokens)
+            tokenCell(label: "cache-r", value: bucket.cacheReadTokens)
+            tokenCell(label: "cache-w", value: bucket.cacheWriteTokens)
+        }
+        .font(.caption2.monospacedDigit())
+        .foregroundStyle(.secondary)
+    }
+
+    @ViewBuilder
+    private func tokenCell(label: String, value: Int) -> some View {
+        HStack(spacing: 3) {
+            Text(label)
+            Text(Fmt.tokens(value))
+                .foregroundStyle(.primary.opacity(0.8))
+        }
     }
 }

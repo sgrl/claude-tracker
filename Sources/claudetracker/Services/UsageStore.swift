@@ -61,6 +61,14 @@ final class UsageStore: ObservableObject {
         let startOfToday = cal.startOfDay(for: now)
         let startOfWeek = cal.date(byAdding: .day, value: -6, to: startOfToday) ?? startOfToday
 
+        // Pre-seed one bucket per day for the last 7 days (oldest first).
+        var dailyBuckets: [Date: Bucket] = [:]
+        for i in 0..<7 {
+            if let d = cal.date(byAdding: .day, value: -i, to: startOfToday) {
+                dailyBuckets[d] = Bucket()
+            }
+        }
+
         let decoder = JSONDecoder()
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
@@ -90,8 +98,10 @@ final class UsageStore: ObservableObject {
                                 formatter: formatter,
                                 formatterNoFrac: formatterNoFrac,
                                 seenMessageIds: &seenMessageIds,
+                                cal: cal,
                                 startOfToday: startOfToday,
                                 startOfWeek: startOfWeek,
+                                dailyBuckets: &dailyBuckets,
                                 snap: &snap
                             )
                         }
@@ -109,14 +119,19 @@ final class UsageStore: ObservableObject {
                         formatter: formatter,
                         formatterNoFrac: formatterNoFrac,
                         seenMessageIds: &seenMessageIds,
+                        cal: cal,
                         startOfToday: startOfToday,
                         startOfWeek: startOfWeek,
+                        dailyBuckets: &dailyBuckets,
                         snap: &snap
                     )
                 }
             }
         }
 
+        snap.dailyLast7 = dailyBuckets
+            .map { DailyBucket(day: $0.key, bucket: $0.value) }
+            .sorted { $0.day < $1.day }
         snap.lastComputedAt = Date()
         return snap
     }
@@ -128,8 +143,10 @@ final class UsageStore: ObservableObject {
         formatter: ISO8601DateFormatter,
         formatterNoFrac: ISO8601DateFormatter,
         seenMessageIds: inout Set<String>,
+        cal: Calendar,
         startOfToday: Date,
         startOfWeek: Date,
+        dailyBuckets: inout [Date: Bucket],
         snap: inout UsageSnapshot
     ) {
         guard let raw = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else { return }
@@ -183,6 +200,11 @@ final class UsageStore: ObservableObject {
             snap.byModelWeek[entry.modelId, default: .init()].add(entry)
             rollup.week.add(entry)
             rollup.byModelWeek[entry.modelId, default: .init()].add(entry)
+            let dayStart = cal.startOfDay(for: ts)
+            if var b = dailyBuckets[dayStart] {
+                b.add(entry)
+                dailyBuckets[dayStart] = b
+            }
         }
         snap.allTime.add(entry)
         snap.byModelAll[entry.modelId, default: .init()].add(entry)
