@@ -272,6 +272,13 @@ final class UsageStore: ObservableObject {
             }
         }
 
+        var hourlyToday: [Date: Bucket] = [:]
+        for h in 0..<24 {
+            if let t = cal.date(byAdding: .hour, value: h, to: startOfToday) {
+                hourlyToday[t] = Bucket()
+            }
+        }
+
         var seenMessageIds = Set<String>()
         var entryCount = 0
 
@@ -304,6 +311,7 @@ final class UsageStore: ObservableObject {
                     startOfToday: startOfToday,
                     startOfWeek: startOfWeek,
                     dailyBuckets: &dailyBuckets,
+                    hourlyToday: &hourlyToday,
                     snap: &snap
                 )
 
@@ -363,6 +371,9 @@ final class UsageStore: ObservableObject {
         snap.dailyLast7 = dailyBuckets
             .map { DailyBucket(day: $0.key, bucket: $0.value) }
             .sorted { $0.day < $1.day }
+        snap.todayHourly = hourlyToday
+            .map { HourlyBucket(hour: $0.key, bucket: $0.value) }
+            .sorted { $0.hour < $1.hour }
         snap.lastComputedAt = Date()
         return snap
     }
@@ -373,6 +384,7 @@ final class UsageStore: ObservableObject {
         startOfToday: Date,
         startOfWeek: Date,
         dailyBuckets: inout [Date: Bucket],
+        hourlyToday: inout [Date: Bucket],
         snap: inout UsageSnapshot
     ) {
         var rollup = snap.byProject[entry.projectKey] ?? ProjectRollup()
@@ -382,6 +394,11 @@ final class UsageStore: ObservableObject {
             snap.byModelToday[entry.modelId, default: .init()].add(entry)
             rollup.today.add(entry)
             rollup.byModelToday[entry.modelId, default: .init()].add(entry)
+            let comps = cal.dateComponents([.year, .month, .day, .hour], from: entry.timestamp)
+            if let hour = cal.date(from: comps), var h = hourlyToday[hour] {
+                h.add(entry)
+                hourlyToday[hour] = h
+            }
         }
         if entry.timestamp >= startOfWeek {
             snap.thisWeek.add(entry)

@@ -45,7 +45,22 @@ targets:
         com.apple.security.app-sandbox: false
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sagar.claudetracker
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.sgrl.claude-tracker
         PRODUCT_NAME: claudetracker
         MACOSX_DEPLOYMENT_TARGET: "14.0"
         GENERATE_INFOPLIST_FILE: "NO"
+
+  claudetrackerTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/claudetrackerTests
+    dependencies:
+      - target: claudetracker
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.github.sgrl.claude-tracker.tests
+        MACOSX_DEPLOYMENT_TARGET: "14.0"
+        GENERATE_INFOPLIST_FILE: "YES"
+        BUNDLE_LOADER: "$(TEST_HOST)"
+        TEST_HOST: "$(BUILT_PRODUCTS_DIR)/claudetracker.app/Contents/MacOS/claudetracker"

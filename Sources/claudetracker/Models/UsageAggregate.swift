@@ -185,6 +185,7 @@ struct UsageSnapshot: Equatable {
     var byModelAll: [String: Bucket] = [:]
     var byProject: [String: ProjectRollup] = [:]
     var dailyLast7: [DailyBucket] = []  // chronological: oldest first, includes today
+    var todayHourly: [HourlyBucket] = []  // 24 entries, hour 0..23 of the current calendar day
     var sessions: [String: SessionCacheState] = [:]   // keyed by sessionId
     var entryCount: Int = 0
     var lastComputedAt: Date = .distantPast

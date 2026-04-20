@@ -1,7 +1,9 @@
 import SwiftUI
+import Charts
 
 struct TodayCard: View {
     let bucket: Bucket
+    let hourly: [HourlyBucket]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -18,6 +20,11 @@ struct TodayCard: View {
                     .foregroundStyle(.secondary)
             }
             TokenBreakdownRow(bucket: bucket)
+            if !hourly.isEmpty {
+                HourlyTodayChart(hours: hourly)
+                    .frame(height: 36)
+                    .padding(.top, 4)
+            }
         }
     }
 }
@@ -42,6 +49,40 @@ struct TokenBreakdownRow: View {
             Text(label)
             Text(Fmt.tokens(value))
                 .foregroundStyle(.primary.opacity(0.8))
+        }
+    }
+}
+
+private struct HourlyTodayChart: View {
+    let hours: [HourlyBucket]
+
+    private var currentHour: Date {
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.year, .month, .day, .hour], from: Date())
+        return cal.date(from: comps) ?? Date()
+    }
+
+    var body: some View {
+        Chart(hours) { item in
+            BarMark(
+                x: .value("Hour", item.hour, unit: .hour),
+                y: .value("Cost", item.bucket.cost)
+            )
+            .foregroundStyle(item.hour == currentHour
+                             ? Color.accentColor
+                             : Color.accentColor.opacity(0.55))
+            .cornerRadius(1.5)
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .hour, count: 4)) { _ in
+                AxisValueLabel(format: .dateTime.hour(), centered: true)
+                    .font(.system(size: 9))
+                    .foregroundStyle(Color.secondary)
+            }
+        }
+        .chartYAxis(.hidden)
+        .chartPlotStyle { plot in
+            plot.background(Color.clear)
         }
     }
 }

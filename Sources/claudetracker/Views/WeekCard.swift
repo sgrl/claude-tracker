@@ -39,7 +39,7 @@ private struct DailyCostChart: View {
                 x: .value("Day", item.day, unit: .day),
                 y: .value("Cost", item.bucket.cost)
             )
-            .foregroundStyle(item.day == todayKey ? Color.accentColor : Color.accentColor.opacity(0.45))
+            .foregroundStyle(item.day == todayKey ? Color.accentColor : Color.accentColor.opacity(0.55))
             .cornerRadius(2)
             .annotation(position: .top, alignment: .center, spacing: 1) {
                 if item.bucket.cost > 0 {

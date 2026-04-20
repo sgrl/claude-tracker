@@ -40,7 +40,7 @@ struct PopoverView: View {
                           isFresh: bridge.isFresh)
             SectionDivider()
 
-            TodayCard(bucket: usage.snapshot.today)
+            TodayCard(bucket: usage.snapshot.today, hourly: usage.snapshot.todayHourly)
             SectionDivider()
 
             WeekCard(bucket: usage.snapshot.thisWeek, dailyLast7: usage.snapshot.dailyLast7)
@@ -52,6 +52,12 @@ struct PopoverView: View {
             ProjectBreakdownCard(
                 rollups: usage.snapshot.byProject,
                 activeProjects: activeProjectNames
+            )
+            SectionDivider()
+
+            SessionBreakdownCard(
+                sessions: Array(usage.snapshot.sessions.values),
+                activeSessionIds: Set(liveSessions.map(\.state.sessionId))
             )
             SectionDivider()
 
