@@ -46,17 +46,20 @@ Claude Tracker is currently ad-hoc signed (no Apple Developer account on file), 
 
 ## Statusline setup
 
-Claude Tracker needs a small block in your Claude Code statusline script to mirror the payload. If you already have one, paste the middle block into it immediately after `input=$(cat)`. If you don't, create `~/.claude/statusline-command.sh`:
+In most cases, nothing to do — the app installs the hook for you. On first launch the popover shows a banner offering to set it up; clicking **Install hook** writes `~/.claude/statusline-claudetracker.sh` and adds a `statusLine` entry to `~/.claude/settings.json`. Live rate-limit data appears on the next Claude Code tick.
+
+If you already have a custom statusline configured, the installer stops and shows a **Copy bridge snippet** button (Settings → Setup). Paste the snippet into your existing script right after `input=$(cat)`. The snippet looks like this:
 
 ```bash
-#!/usr/bin/env bash
-input=$(cat)
-
-# --- Mirror payload for claudetracker ---
+# --- claudetracker bridge start ---
 _ctk_tmp="$HOME/.claude/statusline-input.json.$$.tmp"
-printf '%s' "$input" > "$_ctk_tmp" && mv "$_ctk_tmp" "$HOME/.claude/statusline-input.json"
+printf '%s' "$input" > "$_ctk_tmp" \
+  && mv "$_ctk_tmp" "$HOME/.claude/statusline-input.json"
 
-_ctk_sid=$(printf '%s' "$input" | jq -r '.session_id // empty')
+_ctk_sid=$(printf '%s' "$input" \
+  | grep -oE '"session_id"[[:space:]]*:[[:space:]]*"[^"]+"' \
+  | head -1 \
+  | cut -d'"' -f4)
 if [ -n "$_ctk_sid" ]; then
   _ctk_dir="$HOME/.claude/claudetracker/sessions"
   mkdir -p "$_ctk_dir"
@@ -64,23 +67,10 @@ if [ -n "$_ctk_sid" ]; then
   printf '%s' "$input" > "$_ctk_sess_tmp" \
     && mv "$_ctk_sess_tmp" "$_ctk_dir/${_ctk_sid}.json"
 fi
-
-# Everything below is your normal statusline output.
-printf '%s' "$input" | jq -r '.model.display_name // ""'
+# --- claudetracker bridge end ---
 ```
 
-Then point Claude Code at it in `~/.claude/settings.json`:
-
-```json
-{
-  "statusLine": {
-    "type": "command",
-    "command": "bash /Users/<you>/.claude/statusline-command.sh"
-  }
-}
-```
-
-The rate-limit / cost / model / context fields only appear in the popover after the next Claude Code statusline tick writes them.
+Uninstalling the hook (Settings → Setup → Uninstall) removes our managed script and clears the `statusLine` entry we added. It won't touch any statusline script you already had.
 
 ## Build from source
 

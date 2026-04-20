@@ -25,6 +25,8 @@ struct PopoverView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            SetupBanner()
+
             ActiveSessionsCard(sessions: liveSessions)
             SectionDivider()
 

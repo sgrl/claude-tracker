@@ -5,6 +5,8 @@ struct SettingsView: View {
         TabView {
             GeneralTab()
                 .tabItem { Label("General", systemImage: "gearshape") }
+            SetupTab()
+                .tabItem { Label("Setup", systemImage: "link") }
             NotificationsTab()
                 .tabItem { Label("Notifications", systemImage: "bell") }
             PricingTab()
@@ -12,7 +14,85 @@ struct SettingsView: View {
             AboutTab()
                 .tabItem { Label("About", systemImage: "info.circle") }
         }
-        .frame(width: 480, height: 340)
+        .frame(width: 520, height: 380)
+    }
+}
+
+private struct SetupTab: View {
+    @ObservedObject private var installer = StatuslineInstaller.shared
+    @State private var actionError: String?
+
+    var body: some View {
+        Form {
+            Section("Statusline hook") {
+                statusLine
+                actionButtons
+                if let err = actionError {
+                    Text(err).font(.caption).foregroundStyle(.red)
+                }
+            }
+            Section {
+                Text("Claude Tracker reads rate-limit data from files that Claude Code's statusline script writes. Installing the hook sets up a small script at ~/.claude/statusline-claudetracker.sh and points statusLine in ~/.claude/settings.json at it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+        .formStyle(.grouped)
+        .padding(12)
+        .onAppear { installer.refresh() }
+    }
+
+    @ViewBuilder
+    private var statusLine: some View {
+        switch installer.status {
+        case .installed(let path):
+            Label("Installed at \(path)", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption.monospacedDigit())
+        case .notConfigured:
+            Label("Not installed", systemImage: "exclamationmark.triangle.fill")
+                .foregroundStyle(.orange)
+                .font(.caption)
+        case .externalStatuslineFound(let command, _):
+            VStack(alignment: .leading, spacing: 4) {
+                Label("A different statusline is configured", systemImage: "exclamationmark.triangle.fill")
+                    .foregroundStyle(.orange)
+                    .font(.caption)
+                Text(command)
+                    .font(.caption.monospacedDigit())
+                    .textSelection(.enabled)
+                    .foregroundStyle(.secondary)
+                    .padding(.leading, 20)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var actionButtons: some View {
+        switch installer.status {
+        case .installed:
+            Button("Uninstall hook") {
+                do { try installer.uninstall() ; actionError = nil }
+                catch { actionError = error.localizedDescription }
+            }
+        case .notConfigured:
+            Button("Install hook") {
+                do { try installer.install() ; actionError = nil }
+                catch { actionError = error.localizedDescription }
+            }
+            .keyboardShortcut(.defaultAction)
+        case .externalStatuslineFound:
+            HStack {
+                Button("Copy bridge snippet") {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(StatuslineInstaller.bridgeScript, forType: .string)
+                }
+                Text("Paste into your existing statusline script, right after `input=$(cat)`.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+        }
     }
 }
 
