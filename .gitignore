@@ -5,3 +5,6 @@ DerivedData/
 .swiftpm/
 *.xcworkspace
 xcuserdata/
+
+# Icon source (iconset) is generated — commit only the compiled .icns
+Resources/AppIcon.iconset/

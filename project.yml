@@ -25,11 +25,17 @@ targets:
         excludes:
           - "Info.plist"
           - "claudetracker.entitlements"
+      - path: Resources
+        optional: true
+        buildPhase: resources
+        excludes:
+          - "AppIcon.iconset"
     info:
       path: Sources/claudetracker/Info.plist
       properties:
         LSUIElement: true
         CFBundleDisplayName: Claude Tracker
+        CFBundleIconFile: AppIcon
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
         NSHumanReadableCopyright: ""
