@@ -138,27 +138,33 @@ private struct CacheStatusBadge: View {
     let state: SessionCacheState
 
     var body: some View {
-        HStack(spacing: 3) {
-            Image(systemName: "bolt.fill")
-                .font(.caption2)
-            Text(text)
-                .font(.caption.monospacedDigit())
+        // TimelineView re-renders just this badge every second from system time,
+        // so the cache countdown is truly live instead of moving in sync with
+        // the popover's 15-second tick.
+        TimelineView(.periodic(from: .now, by: 1)) { context in
+            let remaining = remaining(at: context.date)
+            HStack(spacing: 3) {
+                Image(systemName: "bolt.fill")
+                    .font(.caption2)
+                Text(label(remaining: remaining))
+                    .font(.caption.monospacedDigit())
+            }
+            .foregroundStyle(remaining < 60 ? Color.orange : Color.green)
         }
-        .foregroundStyle(tint)
     }
 
-    private var text: String {
-        let remaining = state.cacheTimeRemaining
+    private func remaining(at now: Date) -> TimeInterval {
+        if let exp = state.cacheExpiresAt {
+            return max(0, exp.timeIntervalSince(now))
+        }
+        // No cache write yet — grace window is 5 minutes from first message.
+        return max(0, 300 - now.timeIntervalSince(state.lastMessageAt))
+    }
+
+    private func label(remaining: TimeInterval) -> String {
         if let win = state.dominantWindow {
             return "\(win.label) ▸ \(Fmt.shortRemaining(remaining))"
         }
-        // No cache written yet — show the warmup allowance countdown.
         return "warmup \(Fmt.shortRemaining(remaining))"
-    }
-
-    private var tint: Color {
-        let remaining = state.cacheTimeRemaining
-        if remaining < 60 { return .orange }
-        return .green
     }
 }
