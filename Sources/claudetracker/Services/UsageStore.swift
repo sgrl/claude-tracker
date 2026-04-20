@@ -224,23 +224,33 @@ final class UsageStore: ObservableObject {
 
         let modelId  = (message["model"] as? String) ?? "unknown"
         let sessionId = (raw["sessionId"] as? String) ?? ""
+        let cwd = raw["cwd"] as? String
         let projectKey: String = {
-            if let cwd = raw["cwd"] as? String, let last = cwd.split(separator: "/").last {
+            if let cwd, let last = cwd.split(separator: "/").last {
                 return String(last)
             }
             return fallbackProjectKey
         }()
 
+        // Cache-creation breakdown lets us tell 5-minute writes apart from 1-hour
+        // writes, which determines how long the session's cache stays warm.
+        let cacheCreation = usage["cache_creation"] as? [String: Any]
+        let ephem5m = (cacheCreation?["ephemeral_5m_input_tokens"] as? Int) ?? 0
+        let ephem1h = (cacheCreation?["ephemeral_1h_input_tokens"] as? Int) ?? 0
+
         let entry = UsageEntry(
             timestamp: ts,
             modelId: modelId,
             projectKey: projectKey,
+            cwd: cwd,
             sessionId: sessionId,
             messageId: messageId,
             inputTokens:      (usage["input_tokens"] as? Int) ?? 0,
             outputTokens:     (usage["output_tokens"] as? Int) ?? 0,
             cacheWriteTokens: (usage["cache_creation_input_tokens"] as? Int) ?? 0,
-            cacheReadTokens:  (usage["cache_read_input_tokens"]  as? Int) ?? 0
+            cacheReadTokens:  (usage["cache_read_input_tokens"]  as? Int) ?? 0,
+            ephemeral5mWriteTokens: ephem5m,
+            ephemeral1hWriteTokens: ephem1h
         )
         return entry.totalTokens == 0 ? nil : entry
     }
@@ -265,10 +275,25 @@ final class UsageStore: ObservableObject {
         var seenMessageIds = Set<String>()
         var entryCount = 0
 
+        // Per-session scratchpads so we can emit SessionCacheState at the end.
+        struct SessionAcc {
+            var cwd: String?
+            var projectKey: String
+            var modelId: String
+            var firstMessageAt: Date
+            var lastMessageAt: Date
+            var last5mWriteAt: Date?
+            var last1hWriteAt: Date?
+            var transcriptURL: URL?
+            var bucket: Bucket
+        }
+        var sessions: [String: SessionAcc] = [:]
+
         // Merge in deterministic order so dedup wins stay stable across runs.
         let ordered = fileStates.keys.sorted { $0.path < $1.path }
         for key in ordered {
             guard let state = fileStates[key] else { continue }
+            let fileURL = state.url
             for entry in state.entries {
                 if seenMessageIds.contains(entry.messageId) { continue }
                 seenMessageIds.insert(entry.messageId)
@@ -281,9 +306,59 @@ final class UsageStore: ObservableObject {
                     dailyBuckets: &dailyBuckets,
                     snap: &snap
                 )
+
+                if !entry.sessionId.isEmpty {
+                    var acc = sessions[entry.sessionId] ?? SessionAcc(
+                        cwd: entry.cwd,
+                        projectKey: entry.projectKey,
+                        modelId: entry.modelId,
+                        firstMessageAt: entry.timestamp,
+                        lastMessageAt: entry.timestamp,
+                        last5mWriteAt: nil,
+                        last1hWriteAt: nil,
+                        transcriptURL: fileURL,
+                        bucket: .init()
+                    )
+                    if entry.timestamp < acc.firstMessageAt { acc.firstMessageAt = entry.timestamp }
+                    if entry.timestamp > acc.lastMessageAt {
+                        acc.lastMessageAt = entry.timestamp
+                        acc.modelId = entry.modelId
+                        if entry.cwd != nil { acc.cwd = entry.cwd }
+                    }
+                    if entry.ephemeral5mWriteTokens > 0 {
+                        if acc.last5mWriteAt == nil || entry.timestamp > acc.last5mWriteAt! {
+                            acc.last5mWriteAt = entry.timestamp
+                        }
+                    }
+                    if entry.ephemeral1hWriteTokens > 0 {
+                        if acc.last1hWriteAt == nil || entry.timestamp > acc.last1hWriteAt! {
+                            acc.last1hWriteAt = entry.timestamp
+                        }
+                    }
+                    acc.bucket.add(entry)
+                    acc.transcriptURL = fileURL
+                    sessions[entry.sessionId] = acc
+                }
             }
         }
 
+        var sessionStates: [String: SessionCacheState] = [:]
+        for (sid, acc) in sessions {
+            sessionStates[sid] = SessionCacheState(
+                sessionId: sid,
+                cwd: acc.cwd,
+                projectKey: acc.projectKey,
+                modelId: acc.modelId,
+                firstMessageAt: acc.firstMessageAt,
+                lastMessageAt: acc.lastMessageAt,
+                last5mWriteAt: acc.last5mWriteAt,
+                last1hWriteAt: acc.last1hWriteAt,
+                transcriptURL: acc.transcriptURL,
+                bucket: acc.bucket
+            )
+        }
+
+        snap.sessions = sessionStates
         snap.entryCount = entryCount
         snap.dailyLast7 = dailyBuckets
             .map { DailyBucket(day: $0.key, bucket: $0.value) }

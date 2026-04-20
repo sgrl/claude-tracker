@@ -9,9 +9,23 @@ struct PopoverView: View {
 
     private let tickTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
+    private var liveSessions: [LiveSession] {
+        let bridgeBySession = Dictionary(
+            uniqueKeysWithValues: sessions.sessions.map { ($0.sessionId, $0) }
+        )
+        return usage.snapshot.sessions.values
+            .filter { $0.isCacheWarm }
+            .map { LiveSession(state: $0, bridge: bridgeBySession[$0.sessionId]) }
+            .sorted { $0.state.lastMessageAt > $1.state.lastMessageAt }
+    }
+
+    private var activeProjectNames: Set<String> {
+        Set(liveSessions.map { $0.projectName })
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            ActiveSessionsCard(sessions: sessions.activeSessions)
+            ActiveSessionsCard(sessions: liveSessions)
             SectionDivider()
 
             RateLimitCard(title: "5-HOUR BLOCK",
@@ -37,7 +51,7 @@ struct PopoverView: View {
 
             ProjectBreakdownCard(
                 rollups: usage.snapshot.byProject,
-                activeProjects: Set(sessions.activeSessions.map(\.projectName))
+                activeProjects: activeProjectNames
             )
             SectionDivider()
 

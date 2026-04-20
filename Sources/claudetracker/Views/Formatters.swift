@@ -51,6 +51,20 @@ enum Fmt {
         return df.string(from: date)
     }
 
+    /// "48m 12s", "4m 8s", "42s" — compact remaining-time label.
+    static func shortRemaining(_ seconds: TimeInterval) -> String {
+        let secs = max(0, Int(seconds))
+        let m = secs / 60
+        let s = secs % 60
+        if m >= 60 {
+            let h = m / 60
+            let mm = m % 60
+            return "\(h)h \(mm)m"
+        }
+        if m > 0 { return "\(m)m \(s)s" }
+        return "\(s)s"
+    }
+
     static func relative(from date: Date) -> String {
         let secs = Int(-date.timeIntervalSinceNow)
         if secs < 5     { return "just now" }

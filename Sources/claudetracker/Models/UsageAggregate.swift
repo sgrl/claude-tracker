@@ -4,12 +4,15 @@ struct UsageEntry: Equatable {
     let timestamp: Date
     let modelId: String
     let projectKey: String          // derived from cwd (last path component) or raw dir name
+    let cwd: String?                // full cwd when available (for session detail etc.)
     let sessionId: String
     let messageId: String
     let inputTokens: Int
     let outputTokens: Int
-    let cacheWriteTokens: Int       // cache_creation_input_tokens
+    let cacheWriteTokens: Int       // cache_creation_input_tokens (total)
     let cacheReadTokens: Int        // cache_read_input_tokens
+    let ephemeral5mWriteTokens: Int // cache_creation.ephemeral_5m_input_tokens
+    let ephemeral1hWriteTokens: Int // cache_creation.ephemeral_1h_input_tokens
 
     var totalTokens: Int {
         inputTokens + outputTokens + cacheWriteTokens + cacheReadTokens
@@ -95,6 +98,84 @@ struct DailyBucket: Equatable, Identifiable {
     var id: Date { day }
 }
 
+/// Which ephemeral cache window a session's current warmth is anchored to.
+enum CacheWindow: Equatable {
+    case fiveMin
+    case oneHour
+
+    var ttl: TimeInterval {
+        switch self {
+        case .fiveMin: return 5 * 60
+        case .oneHour: return 60 * 60
+        }
+    }
+
+    var label: String {
+        switch self {
+        case .fiveMin: return "5m"
+        case .oneHour: return "1h"
+        }
+    }
+}
+
+struct SessionCacheState: Equatable, Identifiable {
+    let sessionId: String
+    let cwd: String?
+    let projectKey: String
+    let modelId: String
+    let firstMessageAt: Date
+    let lastMessageAt: Date
+    let last5mWriteAt: Date?
+    let last1hWriteAt: Date?
+    let transcriptURL: URL?
+    let bucket: Bucket
+
+    var id: String { sessionId }
+
+    /// Expiry of the most recently written cache key. `nil` when the session
+    /// has produced no cache writes yet (rare — only the opening exchange
+    /// before any cache anchor has been established).
+    var cacheExpiresAt: Date? {
+        let five = last5mWriteAt?.addingTimeInterval(CacheWindow.fiveMin.ttl)
+        let hour = last1hWriteAt?.addingTimeInterval(CacheWindow.oneHour.ttl)
+        switch (five, hour) {
+        case (nil, nil):    return nil
+        case let (f?, nil): return f
+        case let (nil, h?): return h
+        case let (f?, h?):  return max(f, h)
+        }
+    }
+
+    /// Which cache the session currently relies on — i.e. whose expiry will
+    /// be the one that matters for the next message. Returns nil if no cache
+    /// has been written yet.
+    var dominantWindow: CacheWindow? {
+        let fExp = last5mWriteAt?.addingTimeInterval(CacheWindow.fiveMin.ttl)
+        let hExp = last1hWriteAt?.addingTimeInterval(CacheWindow.oneHour.ttl)
+        switch (fExp, hExp) {
+        case (nil, nil): return nil
+        case (_?, nil):  return .fiveMin
+        case (nil, _?):  return .oneHour
+        case let (f?, h?):
+            return f >= h ? .fiveMin : .oneHour
+        }
+    }
+
+    var isCacheWarm: Bool {
+        if let exp = cacheExpiresAt { return Date() < exp }
+        // No cache write yet — treat as warm for the first few minutes so the
+        // session still shows up on the active list while it gets going.
+        return Date().timeIntervalSince(lastMessageAt) < 300
+    }
+
+    var cacheTimeRemaining: TimeInterval {
+        guard let exp = cacheExpiresAt else {
+            return max(0, 300 - Date().timeIntervalSince(lastMessageAt))
+        }
+        return max(0, exp.timeIntervalSinceNow)
+    }
+}
+
 struct UsageSnapshot: Equatable {
     var today: Bucket = .init()
     var thisWeek: Bucket = .init()
@@ -104,6 +185,7 @@ struct UsageSnapshot: Equatable {
     var byModelAll: [String: Bucket] = [:]
     var byProject: [String: ProjectRollup] = [:]
     var dailyLast7: [DailyBucket] = []  // chronological: oldest first, includes today
+    var sessions: [String: SessionCacheState] = [:]   // keyed by sessionId
     var entryCount: Int = 0
     var lastComputedAt: Date = .distantPast
 

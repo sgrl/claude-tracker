@@ -118,16 +118,20 @@ enum SessionTranscriptParser {
                        !seenMsgIds.contains(messageId) {
                         seenMsgIds.insert(messageId)
                         let modelId = (message["model"] as? String) ?? "unknown"
+                        let cacheCreation = usage["cache_creation"] as? [String: Any]
                         let entry = UsageEntry(
                             timestamp: ts,
                             modelId: modelId,
                             projectKey: cwd.flatMap { $0.split(separator: "/").last.map(String.init) } ?? "",
+                            cwd: cwd,
                             sessionId: sessionId ?? "",
                             messageId: messageId,
                             inputTokens:      (usage["input_tokens"] as? Int) ?? 0,
                             outputTokens:     (usage["output_tokens"] as? Int) ?? 0,
                             cacheWriteTokens: (usage["cache_creation_input_tokens"] as? Int) ?? 0,
-                            cacheReadTokens:  (usage["cache_read_input_tokens"]  as? Int) ?? 0
+                            cacheReadTokens:  (usage["cache_read_input_tokens"]  as? Int) ?? 0,
+                            ephemeral5mWriteTokens: (cacheCreation?["ephemeral_5m_input_tokens"] as? Int) ?? 0,
+                            ephemeral1hWriteTokens: (cacheCreation?["ephemeral_1h_input_tokens"] as? Int) ?? 0
                         )
                         if entry.totalTokens > 0 {
                             modelBuckets[modelId, default: .init()].add(entry)
