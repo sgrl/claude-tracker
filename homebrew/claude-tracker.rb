@@ -12,8 +12,8 @@
 #   brew install --cask claude-tracker
 
 cask "claude-tracker" do
-  version "0.1.1"
-  sha256 "805c1ad9e2a12beb179c6dc87718a4864c8e3a8944ff18b34e975599ab264953"
+  version "0.1.2"
+  sha256 "e0e7eedf64ddb8fad7b9b4760e931709c631d72b0d633766ff2d2f3742d3f88a"
 
   url "https://github.com/sgrl/claude-tracker/releases/download/v#{version}/claudetracker-#{version}.dmg"
   name "Claude Tracker"
