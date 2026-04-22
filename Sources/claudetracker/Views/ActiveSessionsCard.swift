@@ -45,19 +45,27 @@ struct LiveSession: Identifiable, Equatable {
 
 struct ActiveSessionsCard: View {
     let sessions: [LiveSession]
+    @State private var expanded: Bool = true
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            SectionHeader("ACTIVE SESSIONS") {
-                Text("\(sessions.count)")
-                    .font(.caption.monospacedDigit().weight(.semibold))
-                    .foregroundStyle(.secondary)
+            Button(action: { expanded.toggle() }) {
+                SectionHeader("ACTIVE SESSIONS") {
+                    HStack(spacing: 4) {
+                        Text("\(sessions.count)")
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.secondary)
+                        Image(systemName: expanded ? "chevron.up" : "chevron.down")
+                            .font(.caption2)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .contentShape(Rectangle())
             }
-            if sessions.isEmpty {
-                Text("No warm-cache sessions right now.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            } else {
+            .buttonStyle(.plain)
+            .disabled(sessions.isEmpty)
+
+            if expanded && !sessions.isEmpty {
                 VStack(spacing: 6) {
                     ForEach(sessions) { s in
                         SessionRow(session: s)

@@ -4,10 +4,7 @@ struct PopoverView: View {
     @EnvironmentObject private var bridge: StatuslineBridge
     @EnvironmentObject private var usage: UsageStore
     @EnvironmentObject private var sessions: SessionsBridge
-    @State private var tick: Int = 0
     @Environment(\.openURL) private var openURL
-
-    private let tickTimer = Timer.publish(every: 15, on: .main, in: .common).autoconnect()
 
     private var liveSessions: [LiveSession] {
         let bridgeBySession = Dictionary(
@@ -27,9 +24,6 @@ struct PopoverView: View {
         VStack(alignment: .leading, spacing: 0) {
             SetupBanner()
 
-            ActiveSessionsCard(sessions: liveSessions)
-            SectionDivider()
-
             RateLimitCard(title: "5-HOUR BLOCK",
                           percentage: bridge.snapshot?.rateLimits?.fiveHour?.usedPercentage,
                           resetsAt: bridge.snapshot?.rateLimits?.fiveHour?.resetsAt.map { Date(timeIntervalSince1970: $0) },
@@ -42,13 +36,13 @@ struct PopoverView: View {
                           isFresh: bridge.isFresh)
             SectionDivider()
 
-            TodayCard(bucket: usage.snapshot.today, hourly: usage.snapshot.todayHourly)
+            ActiveSessionsCard(sessions: liveSessions)
             SectionDivider()
 
-            WeekCard(bucket: usage.snapshot.thisWeek, dailyLast7: usage.snapshot.dailyLast7)
+            TodayCard(bucket: usage.snapshot.today)
             SectionDivider()
 
-            ModelBreakdownCard(snapshot: usage.snapshot)
+            WeekCard(bucket: usage.snapshot.thisWeek)
             SectionDivider()
 
             ProjectBreakdownCard(
@@ -57,18 +51,10 @@ struct PopoverView: View {
             )
             SectionDivider()
 
-            SessionBreakdownCard(
-                sessions: Array(usage.snapshot.sessions.values),
-                activeSessionIds: Set(liveSessions.map(\.state.sessionId))
-            )
-            SectionDivider()
-
             FooterRow()
         }
         .padding(16)
         .frame(width: 380)
-        .onReceive(tickTimer) { _ in tick &+= 1 }
-        .id(tick) // re-render so "in 2h 14m" counters stay live
     }
 }
 
@@ -79,9 +65,11 @@ private struct FooterRow: View {
 
     var body: some View {
         HStack {
-            Text("Refreshed \(Fmt.relative(from: usage.snapshot.lastComputedAt))")
-                .font(.caption)
-                .foregroundStyle(.secondary)
+            TimelineView(.periodic(from: .now, by: 15)) { context in
+                Text("Refreshed \(Fmt.relative(from: usage.snapshot.lastComputedAt, now: context.date))")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             Spacer()
             Button("Refresh") {
                 usage.refresh()

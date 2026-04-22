@@ -7,22 +7,36 @@ struct RateLimitCard: View {
     let isFresh: Bool
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            SectionHeader(title) {
-                Text(percentageText)
-                    .font(.system(.body, design: .monospaced).weight(.semibold))
-                    .foregroundStyle(isFresh ? .primary : .secondary)
+        // Wrap the whole card so "idle" transitions (resetsAt crossing into the
+        // past) happen live without needing a new statusline payload to arrive.
+        TimelineView(.periodic(from: .now, by: 15)) { context in
+            let idle = isIdle(at: context.date)
+            VStack(alignment: .leading, spacing: 6) {
+                SectionHeader(title) {
+                    Text(idle ? "—" : percentageText)
+                        .font(.system(.body, design: .monospaced).weight(.semibold))
+                        .foregroundStyle(isFresh && !idle ? .primary : .secondary)
+                }
+                ThresholdProgressBar(value: idle ? 0 : (percentage ?? 0))
+                resetLine(now: context.date, idle: idle)
             }
-            ThresholdProgressBar(value: percentage ?? 0)
-            resetLine
         }
     }
 
+    private func isIdle(at now: Date) -> Bool {
+        if let resetsAt { return resetsAt <= now }
+        return false
+    }
+
     @ViewBuilder
-    private var resetLine: some View {
-        if let resetsAt {
+    private func resetLine(now: Date, idle: Bool) -> some View {
+        if idle {
+            Text("Idle — waiting for next Claude Code session…")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        } else if let resetsAt {
             HStack {
-                Text("Resets in \(Fmt.duration(until: resetsAt))")
+                Text("Resets in \(Fmt.duration(from: now, until: resetsAt))")
                     .font(.caption.monospacedDigit())
                 Spacer()
                 Text(Fmt.dayTime(resetsAt))

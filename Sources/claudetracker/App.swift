@@ -59,6 +59,10 @@ private struct MenuBarLabel: View {
     @ObservedObject var bridge: StatuslineBridge
     @ObservedObject var usage: UsageStore
     @AppStorage(SettingsKey.menuBarFormat) private var formatRaw: String = MenuBarFormat.fiveHour.rawValue
+    // TimelineView inside MenuBarExtra's label causes runaway CPU (rdar-worthy
+    // interaction), so drive idle-flip refreshes with a plain Timer instead.
+    @State private var now: Date = Date()
+    private let refreshTimer = Timer.publish(every: 30, on: .main, in: .common).autoconnect()
 
     private var format: MenuBarFormat {
         MenuBarFormat(rawValue: formatRaw) ?? .fiveHour
@@ -69,12 +73,19 @@ private struct MenuBarLabel: View {
             Image(systemName: iconName)
             Text(text)
         }
+        .onReceive(refreshTimer) { now = $0 }
+    }
+
+    private var isFiveHourIdle: Bool {
+        guard let ts = bridge.snapshot?.rateLimits?.fiveHour?.resetsAt else { return false }
+        return Date(timeIntervalSince1970: ts) <= now
     }
 
     /// Pick a gauge variant that matches the 5-hour usage level so the icon itself
     /// gives a rough at-a-glance read even before you read the percentage.
     private var iconName: String {
         guard bridge.isFresh,
+              !isFiveHourIdle,
               let pct = bridge.snapshot?.rateLimits?.fiveHour?.usedPercentage else {
             return "gauge.with.dots.needle.0percent"
         }
@@ -98,6 +109,7 @@ private struct MenuBarLabel: View {
 
     private var fiveHourText: String? {
         guard bridge.isFresh,
+              !isFiveHourIdle,
               let pct = bridge.snapshot?.rateLimits?.fiveHour?.usedPercentage else { return nil }
         return "5h \(Int(pct.rounded()))%"
     }

@@ -19,13 +19,19 @@ enum Fmt {
     }
 
     static func duration(until date: Date) -> String {
-        let secs = max(0, Int(date.timeIntervalSinceNow))
+        duration(from: Date(), until: date)
+    }
+
+    static func duration(from now: Date, until date: Date) -> String {
+        let secs = max(0, Int(date.timeIntervalSince(now)))
         let d = secs / 86400
         let h = (secs % 86400) / 3600
         let m = (secs % 3600) / 60
+        let s = secs % 60
         if d > 0 { return "\(d)d \(h)h" }
         if h > 0 { return "\(h)h \(m)m" }
-        return "\(m)m"
+        if m > 0 { return "\(m)m" }
+        return "\(s)s"
     }
 
     /// Friendly elapsed duration: "2h 14m", "14m 8s", "8s".
@@ -65,8 +71,8 @@ enum Fmt {
         return "\(s)s"
     }
 
-    static func relative(from date: Date) -> String {
-        let secs = Int(-date.timeIntervalSinceNow)
+    static func relative(from date: Date, now: Date = Date()) -> String {
+        let secs = Int(now.timeIntervalSince(date))
         if secs < 5     { return "just now" }
         if secs < 60    { return "\(secs)s ago" }
         if secs < 3600  { return "\(secs / 60)m ago" }
